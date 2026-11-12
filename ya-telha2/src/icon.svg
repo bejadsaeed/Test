@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<defs>
+<radialGradient id="bg" cx="70%" cy="10%" r="110%"><stop offset="0" stop-color="#7a25ff"/><stop offset=".55" stop-color="#1d1266"/><stop offset="1" stop-color="#07051a"/></radialGradient>
+<linearGradient id="gd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3b0"/><stop offset=".5" stop-color="#ffcf40"/><stop offset="1" stop-color="#ff9d1c"/></linearGradient>
+<linearGradient id="nv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#27e6ff"/><stop offset=".5" stop-color="#b866ff"/><stop offset="1" stop-color="#ff3fd8"/></linearGradient>
+<filter id="gl" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect id="bgr" width="512" height="512" fill="url(#bg)"/>
+<g id="fg">
+<circle cx="256" cy="262" r="150" fill="none" stroke="#ffffff22" stroke-width="20"/>
+<circle cx="256" cy="262" r="150" fill="none" stroke="url(#nv)" stroke-width="20" stroke-linecap="round" stroke-dasharray="700 943" transform="rotate(-90 256 262)" filter="url(#gl)"/>
+<rect x="226" y="72" width="60" height="30" rx="10" fill="url(#nv)"/>
+<g transform="rotate(-38 256 262)" filter="url(#gl)">
+<rect x="244" y="232" width="26" height="150" rx="13" fill="url(#gd)"/>
+<rect x="176" y="168" width="162" height="84" rx="20" fill="url(#gd)"/>
+<rect x="176" y="186" width="162" height="12" fill="#a85e00" opacity=".45"/>
+<rect x="176" y="222" width="162" height="12" fill="#a85e00" opacity=".45"/>
+</g>
+</g>
+</svg>

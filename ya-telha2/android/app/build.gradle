@@ -1,0 +1,22 @@
+plugins { id "com.android.application" }
+android {
+    namespace "com.bgz.yatelha2"
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.bgz.yatelha2"
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("YTM_KEYSTORE") ?: "../keystore/yatelha2.jks")
+            storePassword System.getenv("YTM_STORE_PASS") ?: "yatelha2"
+            keyAlias "yatelha2"
+            keyPassword System.getenv("YTM_KEY_PASS") ?: "yatelha2"
+        }
+    }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.release } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}

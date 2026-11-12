@@ -1,0 +1,7 @@
+dist/
+tests/shots/
+tests/sheet*.png
+android/keystore/
+android/.gradle/
+android/app/build/
+__pycache__/
