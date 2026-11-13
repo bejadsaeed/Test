@@ -32,8 +32,13 @@ window.AudioSys = (function () {
   /* call from inside a user gesture */
   function unlock() {
     if (!ensure()) return;
-    if (ctx.state === "suspended" && !document.hidden) { try { ctx.resume(); } catch (e) { } }
-    if (!unlocked) { unlocked = true; if (wantMusic) { var w = wantMusic; wantMusic = null; music(w); } }
+    /* iOS Safari: the context starts "suspended" and becomes "interrupted" after a call / app switch — resume on every tap */
+    if (ctx.state !== "running" && !document.hidden) { try { var r = ctx.resume(); if (r && r.catch) r.catch(function () { }); } catch (e) { } }
+    if (!unlocked) {
+      try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { }   /* play even with the iPhone ring switch on silent (iOS 17+) */
+      try { var s0 = ctx.createBufferSource(); s0.buffer = ctx.createBuffer(1, 1, 22050); s0.connect(ctx.destination); s0.start(0); } catch (e) { }   /* classic iOS unlock blip */
+      unlocked = true; if (wantMusic) { var w = wantMusic; wantMusic = null; music(w); }
+    }
   }
   function decode(name, cb) {
     if (buffers[name]) { cb(buffers[name]); return; }
@@ -115,7 +120,7 @@ window.AudioSys = (function () {
   function toggleMute() { set("muted", !cfg.muted); return cfg.muted; }
   document.addEventListener("visibilitychange", function () {
     if (!ctx) return;
-    try { if (document.hidden) ctx.suspend(); else if (unlocked) ctx.resume(); } catch (e) { }
+    try { if (document.hidden) ctx.suspend(); else if (unlocked) { var r = ctx.resume(); if (r && r.catch) r.catch(function () { }); } } catch (e) { }
   });
   return {
     unlock: unlock, play: play, tone: tone, music: music, stopMusic: stopMusic, stopSfx: stopSfx, stopAll: stopAll, preload: preload,

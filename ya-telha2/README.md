@@ -11,6 +11,11 @@
 - 594 سؤال في 8 فئات (مشتركة بين المزاد والقنبلة)، مع تجنّب أسئلة آخر 3 ماتشات لكل لعبة.
 - نظام صوت موحّد: Master / Music / SFX، كتم سريع، والإعدادات بتتحفظ على الجهاز. كل الأصوات ملفات محلية في `src/audio/`.
 
+## iPhone / الويب (PWA)
+
+نفس الكود بيطلع منه نسخة ويب في `web/` (ناتج `python3 build.py`): ملف واحد فيه الكود والخطوط والأصوات + `sw.js` + `manifest`.
+على Safari: زر المشاركة ← «إضافة إلى الشاشة الرئيسية». بعد أول فتحة بتشتغل من غير نت (Service Worker)، وبيانات اللاعيبة والإعدادات ليها نسخة احتياطية في IndexedDB.
+
 ## الملفات
 
 | المسار | الوصف |
@@ -32,6 +37,7 @@
 python3 build.py                     # web + single-file
 python3 tests/e2e.py "$PWD"          # المزاد: 33 فحص (محتاج playwright)
 python3 tests/e2e_games.py "$PWD"    # القنبلة + أهل القرية + الصوت: 76 فحص
+python3 tests/e2e_ios.py "$PWD"      # نسخة الـ PWA ببروفايل iPhone: 25 فحص
 SDK=/path/to/tools ./build-apk.sh    # APK → dist/apk/yatelha2.apk
 ```
 

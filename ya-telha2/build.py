@@ -26,12 +26,12 @@ def make(head):
              .replace("/*APP*/", rd("app.js")).replace("/*BOMB*/", rd("bomb.js")).replace("/*VILLAGE*/", rd("village.js")))
 shutil.rmtree(DIST, ignore_errors=True)
 (DIST / "web").mkdir(parents=True); (DIST / "single").mkdir()
-web = make('<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">')
+web = make('<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="يا تلحق"><meta name="format-detection" content="telephone=no"><meta name="mobile-web-app-capable" content="yes">')
 (DIST / "web" / "index.html").write_text(web, encoding="utf8")
 (DIST / "single" / "index.html").write_text(make(""), encoding="utf8")
 ver = hashlib.sha1(web.encode()).hexdigest()[:10]
 (DIST / "web" / "sw.js").write_text((SRC / "sw.js").read_text().replace("__VER__", ver))
 shutil.copy(SRC / "manifest.webmanifest", DIST / "web")
-for n in ("icon-192.png", "icon-512.png"):
+for n in ("icon-192.png", "icon-512.png", "apple-touch-icon.png"):
     if (SRC / "icons" / n).exists(): shutil.copy(SRC / "icons" / n, DIST / "web")
 print("built", ver, (DIST / "single" / "index.html").stat().st_size, "bytes")

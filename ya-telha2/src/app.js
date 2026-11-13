@@ -14,6 +14,7 @@
   /* ---------- storage ---------- */
   function load(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
+  var HAD_STATE = !!load("ytm_state", null);
   var S = load("ytm_state", null) || {};
   S.players = Array.isArray(S.players) ? S.players : [];
   S.settings = S.settings || {};
@@ -21,7 +22,37 @@
   S.settings.timer = S.settings.timer || 30;
   S.settings.cats = (S.settings.cats || CATS.map(function (c) { return c.id; })).filter(function (id) { return QS[id]; });
   if (!S.settings.cats.length) S.settings.cats = CATS.map(function (c) { return c.id; });
-  function persist() { save("ytm_state", S); }
+  /* IndexedDB mirror of the saved state: Safari on iOS can evict localStorage, IndexedDB of an installed PWA survives better */
+  var IDB = {
+    open: function (cb) {
+      try {
+        var rq = indexedDB.open("ytm", 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore("kv"); };
+        rq.onsuccess = function () { cb(rq.result); }; rq.onerror = function () { cb(null); };
+      } catch (e) { cb(null); }
+    },
+    put: function (k, v) { IDB.open(function (db) { if (!db) return; try { db.transaction("kv", "readwrite").objectStore("kv").put(JSON.parse(JSON.stringify(v)), k); } catch (e) { } }); },
+    get: function (k, cb) {
+      IDB.open(function (db) {
+        if (!db) return cb(null);
+        try { var rq = db.transaction("kv").objectStore("kv").get(k); rq.onsuccess = function () { cb(rq.result || null); }; rq.onerror = function () { cb(null); }; } catch (e) { cb(null); }
+      });
+    }
+  };
+  function persist() { save("ytm_state", S); IDB.put("state", S); }
+  function restoreFromIDB() {
+    if (HAD_STATE) return;
+    IDB.get("state", function (v) {
+      if (!v || !Array.isArray(v.players) || S.players.length) return;
+      v.players.forEach(function (p) { if (p && p.id && p.name) S.players.push(p); });
+      ["settings", "bomb", "village"].forEach(function (k) { if (v[k] && S[k]) for (var f in v[k]) S[k][f] = v[k][f]; });
+      save("ytm_state", S); if (cur === "home") home();
+    });
+  }
+  var UA = navigator.userAgent || "";
+  var IOS = /iPad|iPhone|iPod/.test(UA) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  var STANDALONE = navigator.standalone === true || (window.matchMedia && window.matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches);
+  var WEB = /^https?:$/.test(location.protocol);
 
   var M = null, cur = "home", ed = null, sel = null, bidVal = 1, lockT = null, tick = null, howI = 0, howG = "auction";
   var GAMES = {}, ORDER = [], G = null, ovClose = null;   /* registered games, selected game, overlay close hook */
@@ -105,6 +136,7 @@
       '<div class="top"><button class="ic" data-a="audio" data-mute aria-label="إعدادات الصوت">' + muteIcon() + '</button><div class="hlogo disp"><div class="h1">يا تلحق</div><div class="h2">يا متلحقش</div></div><span class="ic ghost"></span></div>' +
       '<div class="tagline">لمّة وضحك وتحدّي.. اختار لعبتك</div>' +
       '<div class="scroll games">' + ORDER.map(gameCard).join("") + "</div>" +
+      (IOS && WEB && !STANDALONE && !load("ytm_a2hs", 0) ? '<div class="a2hs"><span>📲 عشان تبقى تطبيق على الـ iPhone: دوس زر المشاركة <b>⬆</b> في Safari واختار <b>«إضافة إلى الشاشة الرئيسية»</b></span><button class="mini" data-a="a2hsHide" aria-label="إخفاء">✕</button></div>' : "") +
       '<div class="sm mut center">' + ORDER.length + " ألعاب • " + TOTAL_Q + ' سؤال • من غير نت</div>');
   }
   function audioPanel() {
@@ -316,6 +348,7 @@
 
   /* ================= actions ================= */
   var A = {
+    a2hsHide: function () { save("ytm_a2hs", 1); home(); },
     audio: function () { audioPanel(); },
     audioTg: function (v) { AU.set(v, !AU.get()[v]); audioPanel(); },
     mute: function (v) { AU.toggleMute(); refreshMute(); if (v === "panel") audioPanel(); },
@@ -410,7 +443,7 @@
     muteBtn: function () { return '<button class="ic" data-a="mute" data-mute aria-label="كتم الصوت">' + muteIcon() + "</button>"; },
     exitBtn: '<button class="ic" data-a="exit" aria-label="خروج">✕</button>',
     register: function (id, g) { GAMES[id] = g; ORDER.push(id); for (var k in g.actions || {}) A[k] = g.actions[k]; },
-    boot: function () { home(); }
+    boot: function () { home(); restoreFromIDB(); try { navigator.storage && navigator.storage.persist && navigator.storage.persist().catch(function () { }); } catch (e) { } }
   };
   window.YTM.register("auction", {
     name: "المزاد", desc: "زايد على عدد الإجابات.. والحق قبل الوقت ما يخلص", art: ART_AUCTION, min: 2,
@@ -418,8 +451,18 @@
     isActive: function () { return !!M; }, atEnd: function () { return cur === "final"; },
     stop: function () { stopTimers(); saveHistory(); M = null; }
   });
-  window.__ytm = { state: S, match: function () { return M; }, screen: function () { return cur; }, total: TOTAL_Q, game: function () { return G; }, games: GAMES, audio: AU };
+  window.__ytm = { ios: IOS, standalone: STANDALONE, state: S, match: function () { return M; }, screen: function () { return cur; }, total: TOTAL_Q, game: function () { return G; }, games: GAMES, audio: AU };
 
+  /* iOS Safari touch behaviour: :active styles, no pinch / double-tap zoom, no rubber-band outside scroll areas */
+  document.addEventListener("touchstart", function () { }, { passive: true });
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+  document.addEventListener("dblclick", function (e) { e.preventDefault(); });
+  document.addEventListener("touchmove", function (e) {
+    if (e.touches.length > 1) { e.preventDefault(); return; }
+    var t = e.target, ok = false;
+    while (t && t !== document.body) { if (t.classList && (t.classList.contains("scroll") || t.classList.contains("modal")) && t.scrollHeight > t.clientHeight + 1) { ok = true; break; } t = t.parentNode; }
+    if (!ok && !(e.target.type === "range")) e.preventDefault();
+  }, { passive: false });
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {
     try { navigator.serviceWorker.register("sw.js").catch(function () { }); } catch (e) { }
   }
