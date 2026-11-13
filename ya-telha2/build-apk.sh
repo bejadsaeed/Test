@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"; SDK="${SDK:-$ROOT/../tools/sdk}"
 APP="$ROOT/android/app/src/main"; OUT="$ROOT/dist/apk"; W="$OUT/work"
-PKG=com.bgz.yatelha2; VCODE=1; VNAME=1.0.0
+PKG=com.bgz.yatelha2; VCODE=2; VNAME=1.1.0
 KS="$ROOT/android/keystore/yatelha2.jks"; KPASS="${YTM_STORE_PASS:-yatelha2}"
 unset JAVA_TOOL_OPTIONS
 python3 "$ROOT/build.py"

@@ -1,4 +1,5 @@
-/* يا تلحق يا متلحقش — لعبة المزاد */
+/* يا تلحق يا متلحقش — النواة المشتركة (لاعيبة، تنقّل، صوت، واجهة) + لعبة المزاد.
+   الألعاب التانية في ملفات مستقلة (bomb.js / village.js) وبتتسجّل عن طريق YTM.register */
 (function () {
   "use strict";
   var $ = function (s) { return document.querySelector(s); };
@@ -20,10 +21,10 @@
   S.settings.timer = S.settings.timer || 30;
   S.settings.cats = (S.settings.cats || CATS.map(function (c) { return c.id; })).filter(function (id) { return QS[id]; });
   if (!S.settings.cats.length) S.settings.cats = CATS.map(function (c) { return c.id; });
-  if (S.sound === undefined) S.sound = true;
   function persist() { save("ytm_state", S); }
 
-  var M = null, cur = "home", ed = null, sel = null, bidVal = 1, lockT = null, tick = null, howI = 0;
+  var M = null, cur = "home", ed = null, sel = null, bidVal = 1, lockT = null, tick = null, howI = 0, howG = "auction";
+  var GAMES = {}, ORDER = [], G = null, ovClose = null;   /* registered games, selected game, overlay close hook */
 
   /* ---------- helpers ---------- */
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -37,7 +38,8 @@
     cur = name;
     app.innerHTML = '<div class="screen ' + (cls || "") + '"' + (noAnim ? ' style="animation:none"' : "") + ">" + html + "</div>";
   }
-  function overlay(html, cls) { ovEl.innerHTML = html ? '<div class="ov ' + (cls || "") + '">' + html + "</div>" : ""; }
+  function overlay(html, cls, onClose) { ovClose = html ? (onClose || null) : null; ovEl.innerHTML = html ? '<div class="ov ' + (cls || "") + '">' + html + "</div>" : ""; }
+  function closeOverlay() { var f = ovClose; overlay(""); if (f) f(); }
   function hasOv() { return !!ovEl.firstChild; }
   function toast(t) {
     var o = $(".toast"); if (o) o.remove();
@@ -45,22 +47,15 @@
     setTimeout(function () { d.remove(); }, 1700);
   }
 
-  /* ---------- sound (WebAudio, no files) ---------- */
-  var AC = null;
-  function ac() {
-    if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } }
-    if (AC && AC.state === "suspended") AC.resume();
-    return AC;
-  }
-  function tone(f, d, type, vol, at, f2) {
-    if (!S.sound) return; var c = ac(); if (!c) return;
-    var t = c.currentTime + (at || 0), o = c.createOscillator(), g = c.createGain();
-    o.type = type || "sine"; o.frequency.setValueAtTime(f, t);
-    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || 0.2, t + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + d + 0.03);
-  }
+  /* ---------- sound: everything goes through the shared AudioSys (audio.js) ---------- */
+  var AU = window.AudioSys;
+  if (S.sound === false) AU.set("muted", true);      /* migrate the old on/off flag */
+  delete S.sound;
+  function ac() { AU.unlock(); }
+  function tone(f, d, type, vol, at, f2) { AU.tone(f, d, type, vol, at, f2); }
+  function muteIcon() { return AU.get().muted ? "🔇" : "🔊"; }
+  function refreshMute() { var b = document.querySelectorAll("[data-mute]"); for (var i = 0; i < b.length; i++) b[i].textContent = muteIcon(); }
+  function leaveGame() { var g = GAMES[G]; if (g && g.stop) g.stop(); AU.stopAll(); }
   var SFX = {
     tap: function () { tone(520, 0.06, "triangle", 0.12); },
     bid: function (n) { var b = 380 + Math.min(n, 20) * 28; tone(b, 0.09, "square", 0.1); tone(b * 1.5, 0.14, "square", 0.1, 0.08); },
@@ -98,29 +93,41 @@
   var C_OK = ["#2dffa0", "#27e6ff", "#b866ff", "#ff3fd8", "#ffffff"], C_GOLD = ["#ffcf40", "#ff9d1c", "#fff7c9", "#ffffff"];
 
   /* ================= screens ================= */
+  var ART_AUCTION = '<svg viewBox="0 0 120 120"><defs><linearGradient id="aG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff3b0"/><stop offset=".5" stop-color="#ffcf40"/><stop offset="1" stop-color="#ff9d1c"/></linearGradient></defs><circle cx="60" cy="62" r="46" fill="none" stroke="#ffffff22" stroke-width="7"/><circle cx="60" cy="62" r="46" fill="none" stroke="#b866ff" stroke-width="7" stroke-linecap="round" stroke-dasharray="210 290" transform="rotate(-90 60 62)"/><g class="swing" transform="rotate(-38 60 62)"><rect x="56" y="54" width="9" height="48" rx="4.5" fill="url(#aG)"/><rect x="34" y="32" width="52" height="28" rx="7" fill="url(#aG)"/><rect x="34" y="38" width="52" height="4" fill="#a85e00" opacity=".45"/><rect x="34" y="50" width="52" height="4" fill="#a85e00" opacity=".45"/></g><rect x="30" y="100" width="60" height="9" rx="4.5" fill="#7a3df0"/></svg>';
+  function gameCard(id) {
+    var g = GAMES[id];
+    return '<div class="gcard2 g-' + id + '"><div class="art">' + g.art + '</div><div class="gi"><b class="disp">' + g.name + '</b><span class="mut sm">' + g.desc + '</span>' +
+      '<div class="row"><button class="btn sm2 ' + (g.btn || "go") + '" data-a="play" data-v="' + id + '">ابدأ اللعب</button><button class="ic disp" data-a="howto" data-v="' + id + '" aria-label="طريقة لعب ' + g.name + '">؟</button></div></div></div>';
+  }
   function home() {
-    stopTimers();
+    stopTimers(); G = null;
     show("home",
-      '<div class="top"><button class="ic" data-a="sound" aria-label="الصوت">' + (S.sound ? "🔊" : "🔇") + '</button><span></span><button class="ic disp" data-a="howto" aria-label="طريقة اللعب">؟</button></div>' +
-      '<div class="logo disp"><div class="l1">يا تلحق</div><div class="l2">يا متلحقش</div><div class="tag" style="font-family:\'Baloo Bhaijaan 2\'">لمّة وسؤال ومزاد.. واللي يزايد يستحمل!</div></div>' +
-      '<div class="grow"></div>' +
-      '<button class="gcard" data-a="play"><span class="em">🔨</span><span><b class="disp">المزاد</b><span class="mut sm">زايد على عدد الإجابات.. والحق قبل الوقت ما يخلص</span></span></button>' +
-      '<div class="gcard soon"><span style="font-size:30px">🔒</span><span class="mut">ألعاب جديدة جاية في الطريق</span></div>' +
-      '<button class="btn go pulse" data-a="play">يلا نلعب</button>' +
-      '<div class="sm mut center">' + TOTAL_Q + ' سؤال • من 2 لـ 12 لاعب • من غير نت</div>');
+      '<div class="top"><button class="ic" data-a="audio" data-mute aria-label="إعدادات الصوت">' + muteIcon() + '</button><div class="hlogo disp"><div class="h1">يا تلحق</div><div class="h2">يا متلحقش</div></div><span class="ic ghost"></span></div>' +
+      '<div class="tagline">لمّة وضحك وتحدّي.. اختار لعبتك</div>' +
+      '<div class="scroll games">' + ORDER.map(gameCard).join("") + "</div>" +
+      '<div class="sm mut center">' + ORDER.length + " ألعاب • " + TOTAL_Q + ' سؤال • من غير نت</div>');
+  }
+  function audioPanel() {
+    var c = AU.get(), keep = ovClose;
+    function sl(k, label) { var v = Math.round(c[k] * 100); return '<label class="vol"><span>' + label + '</span><input type="range" min="0" max="100" step="5" value="' + v + '" data-vol="' + k + '" aria-label="' + label + '"><b id="vv_' + k + '">' + v + "</b></label>"; }
+    function tg(k, label) { return '<button class="chip ' + (c[k] ? "on" : "") + '" data-a="audioTg" data-v="' + k + '">' + label + (c[k] ? " شغّالة" : " مقفولة") + "</button>"; }
+    overlay('<div class="modal"><h2 class="disp">الصوت</h2>' +
+      '<button class="btn ' + (c.muted ? "bad" : "sec") + '" data-a="mute" data-v="panel">' + (c.muted ? "🔇 الصوت مكتوم — دوس للتشغيل" : "🔊 كتم كل الأصوات") + "</button>" +
+      sl("master", "🎚 الصوت العام") + sl("music", "🎵 الموسيقى") + sl("sfx", "💥 المؤثرات") +
+      '<div class="chips" style="justify-content:center">' + tg("musicOn", "🎵 الموسيقى") + tg("sfxOn", "💥 المؤثرات") + '</div><button class="btn go" data-a="closeOv">تمام</button></div>', "", keep);
   }
 
   function players() {
     var rows = S.players.map(function (p) {
       return '<div class="prow">' + av(p.av) + "<b>" + esc(p.name) + '</b><button class="mini" data-a="edit" data-v="' + p.id + '" aria-label="تعديل">✏️</button><button class="mini" data-a="del" data-v="' + p.id + '" aria-label="حذف">🗑️</button></div>';
     }).join("");
-    var n = S.players.length;
+    var n = S.players.length, g = GAMES[G] || GAMES.auction, min = g.min;
     show("players",
       '<div class="top"><button class="ic" data-a="home" aria-label="رجوع">➜</button><h1 class="disp">اللاعيبة</h1><span class="pill">' + n + " / " + MAX_P + "</span></div>" +
       '<div class="scroll">' + (n < MAX_P ? '<button class="addbox" data-a="add"><span>ضيف لاعب جديد</span><span class="plus">+</span></button>' : "") +
       '<div class="plist">' + rows + "</div>" +
-      (n < 2 ? '<div class="mut center" style="padding:20px 10px">محتاجين لاعبين اتنين على الأقل عشان المزاد يولّع 🔥</div>' : "") + "</div>" +
-      '<button class="btn go" data-a="toSettings"' + (n < 2 ? " disabled" : "") + ">التالي</button>");
+      (n < min ? '<div class="mut center" style="padding:20px 10px">' + g.minMsg + "</div>" : "") + "</div>" +
+      '<button class="btn go" data-a="toSettings"' + (n < min ? " disabled" : "") + ">التالي</button>");
   }
   function editor(id) {
     var p = id ? P(id) : null, used = S.players.map(function (x) { return x.av; }), first = 0;
@@ -145,21 +152,25 @@
   }
 
   /* ---------- match ---------- */
-  function buildDeck() {
+  /* shuffled deck for the chosen categories that avoids the questions of the last 3 matches (per game) when possible */
+  function deckFor(cats, histKey, need, keepOrder) {
     var all = [];
-    S.settings.cats.forEach(function (c) { QS[c].forEach(function (t, i) { all.push({ id: c + ":" + i, c: c, t: t }); }); });
-    var hist = load("ytm_hist", []), need = Math.min(all.length, S.settings.rounds * 4), pool = all;
+    cats.forEach(function (c) { QS[c].forEach(function (t, i) { all.push({ id: c + ":" + i, c: c, t: t }); }); });
+    var hist = load(histKey, []), pool = all; need = Math.min(all.length, need);
     for (var k = 0; k <= hist.length; k++) {
       var ex = {}; hist.slice(k).forEach(function (m) { m.forEach(function (id) { ex[id] = 1; }); });
       pool = all.filter(function (q) { return !ex[q.id]; });
       if (pool.length >= need) break;
     }
     var inPool = {}; pool.forEach(function (q) { inPool[q.id] = 1; });
-    return shuffle(pool).concat(shuffle(all.filter(function (q) { return !inPool[q.id]; })));
+    var rest = all.filter(function (q) { return !inPool[q.id]; });
+    return keepOrder ? pool.concat(rest) : shuffle(pool).concat(shuffle(rest));
   }
+  function pushHist(histKey, used) { if (!used || !used.length) return; var h = load(histKey, []); h.push(used.slice()); save(histKey, h.slice(-3)); }
+  function buildDeck() { return deckFor(S.settings.cats, "ytm_hist", S.settings.rounds * 4); }
   function saveHistory() {
     if (!M || !M.used.length || M.saved) return;
-    var h = load("ytm_hist", []); h.push(M.used.slice()); save("ytm_hist", h.slice(-3)); M.saved = true;
+    pushHist("ytm_hist", M.used); M.saved = true;
   }
   function startMatch() {
     M = { round: 0, total: S.settings.rounds, timer: S.settings.timer, deck: buildDeck(), qi: 0, used: [], scores: {}, wastaUsed: false, saved: false };
@@ -294,22 +305,25 @@
     ["🏆", "النقط", "لحق؟ ياخد 100 نقطة على كل إجابة زايد بيها. ملحقش؟ يتخصم منه 500. وخلّي بالك من المفاجآت 👀"]
   ];
   function howto() {
-    var h = HOW[howI];
-    overlay('<div class="modal"><div class="big">' + h[0] + '</div><div class="dotsnav">' + HOW.map(function (_, i) { return '<i class="' + (i === howI ? "on" : "") + '"></i>'; }).join("") + '</div><h2 class="disp">' + h[1] + '</h2><p style="font-size:19px;min-height:112px">' + h[2] + "</p>" +
-      '<div class="row">' + (howI > 0 ? '<button class="btn sec" data-a="howPrev">السابق</button>' : "") + (howI < HOW.length - 1 ? '<button class="btn" data-a="howNext">التالي</button>' : '<button class="btn go" data-a="closeOv">فهمت 👌</button>') + "</div></div>");
+    var HOWG = GAMES[howG].how, h = HOWG[howI];
+    overlay('<div class="modal"><div class="big">' + h[0] + '</div><div class="dotsnav">' + HOWG.map(function (_, i) { return '<i class="' + (i === howI ? "on" : "") + '"></i>'; }).join("") + '</div><h2 class="disp">' + h[1] + '</h2><p style="font-size:19px;min-height:112px">' + h[2] + "</p>" +
+      '<div class="row">' + (howI > 0 ? '<button class="btn sec" data-a="howPrev">السابق</button>' : "") + (howI < HOWG.length - 1 ? '<button class="btn" data-a="howNext">التالي</button>' : '<button class="btn go" data-a="closeOv">فهمت 👌</button>') + "</div></div>");
   }
   function exitAsk() {
-    overlay('<div class="modal"><div class="big">🚪</div><h2 class="disp">تخرج من الماتش؟</h2><p class="mut">النتيجة هتروح عليكم</p><div class="row"><button class="btn bad" style="min-height:58px" data-a="exitYes">أيوه اخرج</button><button class="btn go" data-a="closeOv">كمّل لعب</button></div></div>');
+    var g = GAMES[G]; if (g && g.pause) g.pause();
+    overlay('<div class="modal"><div class="big">🚪</div><h2 class="disp">تخرج من الماتش؟</h2><p class="mut">النتيجة هتروح عليكم</p><div class="row"><button class="btn bad" style="min-height:58px" data-a="exitYes">أيوه اخرج</button><button class="btn go" data-a="closeOv">كمّل لعب</button></div></div>', "", function () { if (g && g.resume) g.resume(); });
   }
 
   /* ================= actions ================= */
   var A = {
-    sound: function () { S.sound = !S.sound; persist(); home(); SFX.tap(); },
-    howto: function () { howI = 0; howto(); },
+    audio: function () { audioPanel(); },
+    audioTg: function (v) { AU.set(v, !AU.get()[v]); audioPanel(); },
+    mute: function (v) { AU.toggleMute(); refreshMute(); if (v === "panel") audioPanel(); },
+    howto: function (v) { howG = GAMES[v] ? v : (G || "auction"); howI = 0; howto(); },
     howNext: function () { howI++; howto(); }, howPrev: function () { howI--; howto(); },
-    closeOv: function () { overlay(""); },
-    home: function () { M = null; home(); },
-    play: function () { players(); }, toPlayers: function () { players(); },
+    closeOv: function () { closeOverlay(); },
+    home: function () { leaveGame(); home(); },
+    play: function (v) { G = GAMES[v] ? v : "auction"; players(); }, toPlayers: function () { players(); },
     add: function () { editor(null); },
     edit: function (v) { editor(v); },
     del: function (v) { S.players = S.players.filter(function (p) { return p.id !== v; }); persist(); players(); },
@@ -324,7 +338,7 @@
       else { if (S.players.length >= MAX_P) return; S.players.push({ id: "p" + Date.now().toString(36) + Math.floor(Math.random() * 1e4), name: name, av: ed.av }); }
       persist(); overlay(""); players();
     },
-    toSettings: function () { if (S.players.length >= 2) settings(); },
+    toSettings: function () { var g = GAMES[G] || GAMES.auction; if (S.players.length >= g.min) g.openSettings(); },
     rounds: function (v) { S.settings.rounds = Math.max(1, Math.min(20, S.settings.rounds + +v)); persist(); $("#rv").textContent = S.settings.rounds; },
     timer: function (v) { S.settings.timer = +v; persist(); settings(); },
     cat: function (v) {
@@ -356,30 +370,57 @@
     next: function () { if (M.round >= M.total) final(); else nextRound(); return "quiet"; },
     again: function () { startMatch(); return "quiet"; },
     exit: function () { exitAsk(); },
-    exitYes: function () { stopTimers(); saveHistory(); overlay(""); M = null; home(); }
+    exitYes: function () { overlay(""); leaveGame(); home(); }
   };
   document.addEventListener("click", function (e) {
     var t = e.target.closest ? e.target.closest("[data-a]") : null;
     if (!t || t.disabled) return;
+    var fn = A[t.getAttribute("data-a")]; if (!fn) return;
     ac();
-    var r = A[t.getAttribute("data-a")](t.getAttribute("data-v"));
+    var r = fn(t.getAttribute("data-v"));
     if (r !== "quiet") SFX.tap();
   });
+  document.addEventListener("input", function (e) {
+    var k = e.target.getAttribute && e.target.getAttribute("data-vol"); if (!k) return;
+    AU.set(k, e.target.value / 100); var b = $("#vv_" + k); if (b) b.textContent = e.target.value;
+  });
+  document.addEventListener("change", function (e) {
+    var k = e.target.getAttribute && e.target.getAttribute("data-vol"); if (!k) return;
+    ac(); if (k === "music") AU.play("reveal", { vol: 0 }); else AU.play("tick", { gap: 0 });
+  });
+  AU.onChange(refreshMute);
   document.addEventListener("keydown", function (e) { if (e.key === "Enter" && e.target.id === "pname") A.saveP(); });
 
   /* hardware back (Android wrapper calls this). returns true if handled */
   window.__back = function () {
-    if (hasOv()) { if (lockT) A.cancelLock(); else if (!$(".ov.wasta")) overlay(""); return true; }
-    if (M && cur !== "final") { exitAsk(); return true; }
-    if (cur === "final") { M = null; home(); return true; }
-    if (cur === "settings") { players(); return true; }
+    if (hasOv()) { if (lockT) A.cancelLock(); else if (!$(".ov.wasta") && !$(".ov.block")) closeOverlay(); return true; }
+    var g = GAMES[G];
+    if (g && g.isActive()) { if (g.atEnd()) { leaveGame(); home(); } else exitAsk(); return true; }
+    if (cur.indexOf("set") === 0) { players(); return true; }
     if (cur === "players") { home(); return true; }
     return false;
   };
-  window.__ytm = { state: S, match: function () { return M; }, screen: function () { return cur; }, total: TOTAL_Q };
+
+  /* ---------- shared API for the other game modules ---------- */
+  window.YTM = {
+    S: S, CATS: CATS, QS: QS, AU: AU, C_OK: C_OK, C_GOLD: C_GOLD, $: $,
+    persist: persist, load: load, save: save, show: show, overlay: overlay, closeOverlay: closeOverlay, hasOv: hasOv, toast: toast,
+    esc: esc, shuffle: shuffle, av: av, P: P, cat: cat, vib: vib, confetti: confetti, deck: deckFor, pushHist: pushHist,
+    cur: function () { return cur; }, players: players, goHome: function () { leaveGame(); home(); },
+    muteBtn: function () { return '<button class="ic" data-a="mute" data-mute aria-label="كتم الصوت">' + muteIcon() + "</button>"; },
+    exitBtn: '<button class="ic" data-a="exit" aria-label="خروج">✕</button>',
+    register: function (id, g) { GAMES[id] = g; ORDER.push(id); for (var k in g.actions || {}) A[k] = g.actions[k]; },
+    boot: function () { home(); }
+  };
+  window.YTM.register("auction", {
+    name: "المزاد", desc: "زايد على عدد الإجابات.. والحق قبل الوقت ما يخلص", art: ART_AUCTION, min: 2,
+    minMsg: "محتاجين لاعبين اتنين على الأقل عشان المزاد يولّع 🔥", how: HOW, openSettings: settings,
+    isActive: function () { return !!M; }, atEnd: function () { return cur === "final"; },
+    stop: function () { stopTimers(); saveHistory(); M = null; }
+  });
+  window.__ytm = { state: S, match: function () { return M; }, screen: function () { return cur; }, total: TOTAL_Q, game: function () { return G; }, games: GAMES, audio: AU };
 
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {
     try { navigator.serviceWorker.register("sw.js").catch(function () { }); } catch (e) { }
   }
-  home();
 })();

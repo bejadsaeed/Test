@@ -13,12 +13,17 @@ fonts = "".join([
     face("Baloo Bhaijaan 2", "baloo-bhaijaan-2-latin-wght-normal.woff2", "400 800", LA),
     face("Lalezar", "lalezar-arabic-400-normal.woff2", "400", AR),
     face("Lalezar", "lalezar-latin-400-normal.woff2", "400", LA)])
+import json
+audio = {f.stem: b64(f) for f in sorted((SRC / "audio").glob("*.mp3"))}   # local sound files, embedded so they work offline everywhere
+audio_js = "window.AUDIO_DATA=" + json.dumps(audio) + ";window.AUDIO_META=" + (SRC / "audio" / "meta.json").read_text() + ";"
+rd = lambda n: (SRC / n).read_text(encoding="utf8")
 t = (SRC / "index.html").read_text(encoding="utf8")
 def make(head):
     return (t.replace("<!--HEAD-->", head).replace("/*FONTS*/", fonts)
              .replace("/*CSS*/", (SRC / "styles.css").read_text(encoding="utf8"))
              .replace("/*QUESTIONS*/", (SRC / "questions.js").read_text(encoding="utf8"))
-             .replace("/*APP*/", (SRC / "app.js").read_text(encoding="utf8")))
+             .replace("/*AUDIODATA*/", audio_js).replace("/*AUDIO*/", rd("audio.js"))
+             .replace("/*APP*/", rd("app.js")).replace("/*BOMB*/", rd("bomb.js")).replace("/*VILLAGE*/", rd("village.js")))
 shutil.rmtree(DIST, ignore_errors=True)
 (DIST / "web").mkdir(parents=True); (DIST / "single").mkdir()
 web = make('<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">')
